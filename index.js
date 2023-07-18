@@ -13,6 +13,31 @@ const port = process.env.PORT || 4000;
 app.use(cors());
 app.use(express.json());
 
+// authGuard
+const authGuard = (req, res, next) => {
+  // check authorization
+  const authorization = req.headers.authorization;
+  if (!authorization) {
+    return res
+      .status(401)
+      .send({ error: true, message: "authorization failed authorization" });
+  }
+
+  // verify token
+  const token = authorization.split(" ")[1];
+  jwt.verify(token, process.env.JWT_SECRET_KEY, (error, decode) => {
+    if (error) {
+      return res
+        .status(402)
+        .send({ error: true, message: "authorization failed verify token" });
+    }
+
+    // set data to body and go to next
+    req.decode = decode;
+    next();
+  });
+};
+
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_USER_PASSWORD}@cluster1.d7lse9s.mongodb.net/?retryWrites=true&w=majority`;
 
 // routes
@@ -59,7 +84,7 @@ async function run() {
       const existUser = await usersColl.findOne({ email: userEmail });
 
       if (existUser) {
-        res.send({ exist: true });
+        res.send({ isExist: true });
       } else {
         const userPass = req.body.password;
 
@@ -68,6 +93,7 @@ async function run() {
           bcrypt.hash(userPass, salt, async (err, hash) => {
             if (err) res.send({ err });
             req.body.password = hash;
+            req.body.displayName = `${req.body?.firstName} ${req.body?.lastName}`;
             const result = await usersColl.insertOne(req.body);
             res.send(result);
           });
@@ -82,29 +108,44 @@ async function run() {
 
       // get the user
       const user = await usersColl.findOne({ email: userEmail });
-      bcrypt.compare(userPass, user.password, async (err, isMatch) => {
-        if (isMatch) {
-          await usersColl.updateOne(
-            { email: user.email },
-            { $set: { status: "loggedIn" } }
-          );
+      if (user) {
+        bcrypt.compare(userPass, user?.password, async (err, isMatch) => {
+          if (isMatch) {
+            await usersColl.updateOne(
+              { email: user?.email },
+              { $set: { isLoggedIn: true } }
+            );
 
-          // generate a new token
-          const userInfo = req.body?.email;
-          const token = jwt.sign(userInfo, process.env.JWT_SECRET_KEY, {
-            expiresIn: "1h",
-          });
-          res.send({ isLogin: true, token });
-        }
-        if (!isMatch) res.status(404).send({ isLogin: false });
-      });
+            // generate a new token
+            const userInfo = { email: req.body?.email };
+            const token = jwt.sign(userInfo, process.env.JWT_SECRET_KEY, {
+              expiresIn: "1h",
+            });
+
+            // user data filter
+            const { password, ...newUser } = user;
+            res.send({ isLogin: true, token, newUser });
+          }
+          if (!isMatch) res.status(401).send({ isLogin: false });
+        });
+      } else {
+        res.status(401).send({ isLogin: false });
+      }
+    });
+
+    // get is user logged in
+    app.get("/users", async (req, res) => {
+      const userEmail = req.query.email;
+      const targetUser = await usersColl.findOne({ email: userEmail });
+      const { password, ...newUser } = targetUser;
+      res.send(newUser);
     });
 
     // log out a user
     app.get("/users/logout/:email", async (req, res) => {
       await usersColl.updateOne(
         { email: req.params.email },
-        { $set: { status: "loggedOut" } }
+        { $set: { isLoggedIn: false } }
       );
       res.send({ isLogout: true });
     });
@@ -116,19 +157,52 @@ async function run() {
       res.send(result);
     });
 
-    // get all houses
-    app.get("/houses", async (req, res) => {
+    // get all house
+    app.get("/allHouses", async (req, res) => {
       const result = await housesColl.find().toArray();
+      res.send(result);
+    });
 
+    // get paginated houses
+    app.get("/houses", async (req, res) => {
+      const limit = parseInt(req.query.limit) || 10;
+      const skip = parseInt(req.query.skip) || 0;
+
+      const result = await housesColl.find().toArray();
+      const paginatedHouses = result.slice(skip, skip + limit);
+
+      res.send(paginatedHouses);
+    });
+
+    // get individual owners houses
+    app.get("/houses/:email", authGuard, async (req, res) => {
+      const userEmail = req.params.email;
+      const decodeEmail = req.decode.email;
+      if (userEmail !== decodeEmail) {
+        return res.status(401).send({ error: true, message: "unAuthorized" });
+      }
+      const result = await housesColl
+        .find({
+          ownerEmail: userEmail,
+        })
+        .toArray();
       res.send(result);
     });
 
     // delete a house
-    app.delete("/houses/:id", async (req, res) => {
+    app.delete("/houses/:id", authGuard, async (req, res) => {
       const result = await housesColl.deleteOne({
         _id: new ObjectId(req.params.id),
       });
 
+      res.send(result);
+    });
+
+    // get a house
+    app.get("/houses/edit/:id", async (req, res) => {
+      const result = await housesColl.findOne({
+        _id: new ObjectId(req.params.id),
+      });
       res.send(result);
     });
 
@@ -166,12 +240,20 @@ async function run() {
     //   res.send(result);
     // });
 
+    // get all booking information
+    app.get("/bookings/:email", authGuard, async (req, res) => {
+      const result = await bookingsColl
+        .find({ ownerEmail: req.params.email })
+        .toArray();
+      res.send(result);
+    });
+
     // booking a house
     app.post("/bookings", async (req, res) => {
       // update booking status
-      const houseId = req.body.houseId;
+      const bookedHouseId = req.body.bookedHouseId;
       await housesColl.updateOne(
-        { _id: new ObjectId(houseId) },
+        { _id: new ObjectId(bookedHouseId) },
         { $set: { isBooking: true } }
       );
 
