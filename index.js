@@ -168,7 +168,18 @@ async function run() {
       const limit = parseInt(req.query.limit) || 10;
       const skip = parseInt(req.query.skip) || 0;
 
-      const result = await housesColl.find().toArray();
+      // apply search
+      const search = req.query.search.toLocaleLowerCase() || "";
+      const searchRegex = new RegExp(search, "i");
+      let result = [];
+      if (search) {
+        result = await housesColl
+          .find({ city: { $regex: searchRegex } })
+          .toArray();
+      } else {
+        result = await housesColl.find().toArray();
+      }
+
       const paginatedHouses = result.slice(skip, skip + limit);
 
       res.send(paginatedHouses);
@@ -248,6 +259,14 @@ async function run() {
       res.send(result);
     });
 
+    // get renter booking houses
+    app.get("/bookings/renter/:email", async (req, res) => {
+      const result = await bookingsColl
+        .find({ renterEmail: req.params.email })
+        .toArray();
+      res.send(result);
+    });
+
     // booking a house
     app.post("/bookings", async (req, res) => {
       // update booking status
@@ -263,15 +282,25 @@ async function run() {
       res.send(result);
     });
 
+    // get renter bookings number
+    app.get("/bookings/renter-number/:email", async (req, res) => {
+      const bookings = await bookingsColl
+        .find({ renterEmail: req.params.email })
+        .toArray();
+
+      const result = bookings?.length;
+      res.send({ bookingCount: result });
+    });
+
     // cancel booking
-    app.get("/bookings/:id", async (req, res) => {
+    app.delete("/bookings/:id", async (req, res) => {
       // update booking status
       const targetBooking = await bookingsColl.findOne({
         _id: new ObjectId(req.params.id),
       });
       if (targetBooking) {
         await housesColl.updateOne(
-          { _id: new ObjectId(targetBooking.houseId) },
+          { _id: new ObjectId(targetBooking.bookedHouseId) },
           { $set: { isBooking: false } }
         );
       }
