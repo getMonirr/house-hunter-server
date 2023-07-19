@@ -281,26 +281,6 @@ async function run() {
       res.send(result);
     });
 
-    // // booking a house
-    // app.patch("/houses/bookings/:id", async (req, res) => {
-    //   const result = await housesColl.updateOne(
-    //     { _id: new ObjectId(req.params.id) },
-    //     { $set: { isBooking: true } }
-    //   );
-
-    //   res.send(result);
-    // });
-
-    // // cancel booking
-    // app.patch("/houses/bookings/cancel/:id", async (req, res) => {
-    //   const result = await housesColl.updateOne(
-    //     { _id: new ObjectId(req.params.id) },
-    //     { $set: { isBooking: false } }
-    //   );
-
-    //   res.send(result);
-    // });
-
     // get all booking information
     app.get("/bookings/:email", authGuard, async (req, res) => {
       const result = await bookingsColl
