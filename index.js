@@ -171,10 +171,60 @@ async function run() {
       // apply search
       const search = req.query.search.toLocaleLowerCase() || "";
       const searchRegex = new RegExp(search, "i");
+      // Apply filters
+      const filters = {};
+
+      // Filter by Bedrooms
+      const bedrooms = parseInt(req.query.bedrooms);
+      if (!isNaN(bedrooms)) {
+        filters.bedrooms = bedrooms;
+      }
+
+      // Filter by City
+      const city = req.query.city ? req.query.city.toLocaleLowerCase() : "";
+      if (city) {
+        filters.city = { $regex: new RegExp(city, "i") };
+      }
+
+      // Filter by Bathrooms
+      const bathrooms = parseInt(req.query.bathrooms);
+      if (!isNaN(bathrooms)) {
+        filters.bathrooms = bathrooms;
+      }
+
+      // Filter by Room Size
+      const roomSize = parseInt(req.query.roomSize);
+      if (!isNaN(roomSize)) {
+        filters.room_size = { $gte: roomSize };
+      }
+
+      // Filter by Rent per month
+      const rentPerMonth = parseInt(req.query.rentPerMonth);
+      if (!isNaN(rentPerMonth)) {
+        filters.rent_per_month = rentPerMonth;
+      }
+
+      // Filter by Selected Date
+      const selectedDate = req.query.selectedDate;
+      if (selectedDate) {
+        filters.date = selectedDate;
+      }
+
       let result = [];
-      if (search) {
+
+      if (search || Object.keys(filters).length > 0) {
         result = await housesColl
-          .find({ city: { $regex: searchRegex } })
+          .find({
+            $and: [
+              {
+                $or: [
+                  { city: { $regex: searchRegex } },
+                  { bedrooms: { $eq: bedrooms } },
+                ],
+              },
+              filters,
+            ],
+          })
           .toArray();
       } else {
         result = await housesColl.find().toArray();
